@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/fatih/color"
 	"github.com/howeyc/fsnotify"
 	"go/build"
 	"log"
@@ -22,6 +23,12 @@ var (
 	do_tests      = flag.Bool("test", false, "Run tests before running program.")
 	test_only     = flag.Bool("test-only", false, "Only run tests.")
 	race_detector = flag.Bool("race", false, "Run program and tests with the race detector")
+
+	// Print Colors
+	info    = color.New(color.Bold, color.FgWhite).SprintfFunc()
+	success = color.New(color.FgGreen).SprintfFunc()
+	warn    = color.New(color.FgYellow).SprintfFunc()
+	fail    = color.New(color.FgRed).SprintfFunc()
 )
 
 func install(buildpath, lastError string) (installed bool, errorOutput string, err error) {
@@ -44,7 +51,7 @@ func install(buildpath, lastError string) (installed bool, errorOutput string, e
 	if buf.Len() > 0 {
 		errorOutput = buf.String()
 		if errorOutput != lastError {
-			fmt.Print(errorOutput)
+			fmt.Print(fail(errorOutput))
 		}
 		err = errors.New("compile error")
 		return
@@ -73,9 +80,10 @@ func test(buildpath string) (passed bool, err error) {
 	passed = err == nil
 
 	if !passed {
-		fmt.Println(buf)
+		log.Println(warn("tests failed"))
+		fmt.Println(warn(buf.String()))
 	} else {
-		log.Println("tests passed")
+		log.Println(success("tests passed"))
 	}
 
 	return
@@ -90,7 +98,7 @@ func run(binName, binPath string, args []string) (runch chan bool) {
 			if proc != nil {
 				err := proc.Signal(os.Interrupt)
 				if err != nil {
-					log.Printf("error on sending signal to process: '%s', will now hard-kill the process\n", err)
+					log.Printf(fail("error on sending signal to process: '%s', will now hard-kill the process\n", err))
 					proc.Kill()
 				}
 				proc.Wait()
@@ -101,10 +109,10 @@ func run(binName, binPath string, args []string) (runch chan bool) {
 			cmd := exec.Command(binPath, args...)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
-			log.Print(cmdline)
+			log.Print(info("%v", cmdline))
 			err := cmd.Start()
 			if err != nil {
-				log.Printf("error on starting process: '%s'\n", err)
+				log.Printf(fail("error on starting process: '%s'\n", err))
 			}
 			proc = cmd.Process
 		}
@@ -136,7 +144,7 @@ func addToWatcher(watcher *fsnotify.Watcher, importpath string, watching map[str
 }
 
 func rerun(buildpath string, args []string) (err error) {
-	log.Printf("setting up %s %v", buildpath, args)
+	log.Printf(info("setting up %s %v", buildpath, args))
 
 	pkg, err := build.Import(buildpath, "", 0)
 	if err != nil {
@@ -189,7 +197,7 @@ func rerun(buildpath string, args []string) (err error) {
 			continue
 		}
 
-		log.Print(we.Name)
+		log.Print(info(we.Name))
 
 		// close the watcher
 		watcher.Close()
@@ -200,7 +208,7 @@ func rerun(buildpath string, args []string) (err error) {
 			}
 		}(watcher.Event)
 		// create a new watcher
-		log.Println("rescanning")
+		log.Println(info("rescanning"))
 		watcher, err = getWatcher(buildpath)
 		if err != nil {
 			return
@@ -250,6 +258,6 @@ func main() {
 	args := flag.Args()[1:]
 	err := rerun(buildpath, args)
 	if err != nil {
-		log.Print(err)
+		log.Print(fail(err.Error()))
 	}
 }
